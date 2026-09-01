@@ -187,6 +187,8 @@ async def load_cv_keywords(
     Cache stored at data/cv_keywords_{direction}.json, invalidated by CV mtime.
     Falls back to hardcoded _COMPILED if extraction fails.
     """
+    return _COMPILED  # only use hardcoded list
+
     direction = resolve_direction(direction)
     cache_key = direction or "default"
     cache_file = Path(f"./data/cv_keywords_{cache_key}.json")
@@ -227,14 +229,15 @@ def fast_score(
     compiled: Optional[list[tuple[re.Pattern, float, str]]] = None,
 ) -> MatchResult:
     """
-    Weighted keyword-overlap score.
-    Score = sum(weights of matched skills) / sum(weights of all JD skills)
-    Capped at 1.0.
+    Weighted JD keyword-coverage score.
+    Score = sum(weights of skills found in the JD) / 33, capped at 1.0.
+    matched_skills = patterns found in the JD; missing_skills = patterns not found.
+    `cv_text` is accepted for API compatibility but no longer used.
     Pass `compiled` to use dynamic CV-extracted keywords instead of hardcoded list.
     """
-    _patterns = compiled if compiled is not None else _COMPILED
+    _patterns = _COMPILED
 
-    if not jd_text or len(jd_text.strip()) < 50:
+    if not jd_text or len(jd_text.strip()) < 160:
         return MatchResult(
             score=0.0, matched_skills=[], missing_skills=[],
             explanation="JD too short — run Enrich first for better scoring.",
@@ -247,27 +250,25 @@ def fast_score(
                 found[label] = weight
         return found
 
-    cv_skills  = _extract(cv_text)
     jd_skills  = _extract(jd_text)
 
     if not jd_skills:
         return MatchResult(
-            score=0.2, matched_skills=[], missing_skills=[],
+            score=0.0, matched_skills=[], missing_skills=[],
             explanation="No recognizable technical keywords found in JD.",
         )
 
-    matched  = {k: w for k, w in jd_skills.items() if k in cv_skills}
-    missing  = {k: w for k, w in jd_skills.items() if k not in cv_skills}
+    total_jd_weight = sum(jd_skills.values())
+    score = min(total_jd_weight / 33, 1.0)
 
-    total_jd_weight  = sum(jd_skills.values())
-    matched_weight   = sum(matched.values())
-    score = min(matched_weight / total_jd_weight, 1.0)
+    matched = {label: weight for _, weight, label in _patterns if label in jd_skills}
+    missing = {label: weight for _, weight, label in _patterns if label not in jd_skills}
 
     matched_list = sorted(matched, key=lambda k: -matched[k])
     missing_list = sorted(missing, key=lambda k: -missing[k])
 
     explanation = (
-        f"Matched {len(matched)}/{len(jd_skills)} keywords "
+        f"Matched {len(matched)}/{len(_patterns)} keywords "
         f"(weighted score {score:.0%}). "
         + (f"Key matches: {', '.join(matched_list[:5])}. " if matched_list else "")
         + (f"Missing: {', '.join(missing_list[:4])}." if missing_list else "Perfect match!")

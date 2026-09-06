@@ -302,6 +302,53 @@ def digest() -> None:
     pipeline_summary()
 
 
+# ── purge ─────────────────────────────────────────────────────────────────────
+@app.command()
+def purge(
+    below: int = typer.Option(10, "--below", "-b", help="Delete jobs scoring below this percent"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview only; do not delete"),
+) -> None:
+    """Permanently delete jobs scoring below the given percent (NEW/ANALYZED/ARCHIVED)."""
+    from db.models import Job, JobStatus, RawJob, Application, JobEvent
+    from db.session import get_session
+
+    threshold = float(below) / 100.0
+    # Collect purgeable jobs
+    _purgeable = [JobStatus.NEW, JobStatus.ANALYZED, JobStatus.ARCHIVED]
+    with get_session() as session:
+        jobs = (
+            session.query(Job)
+            .filter(Job.status.in_(_purgeable), Job.match_score.isnot(None), Job.match_score < threshold)
+            .order_by(Job.match_score.asc())
+            .all()
+        )
+        job_data = [(job.id, job.title, job.match_score, job.status.value) for job in jobs]
+
+    console.print(f"[{ 'DRY RUN' if dry_run else 'DELETE' }] {len(job_data)} jobs with score < {threshold:.0%}")
+    deleted = 0
+    for job_id, title, score, status in job_data:
+        if dry_run:
+            console.print(f"· #{job_id} {score:.0%} [{status}] — {title}")
+            continue
+        try:
+            with get_session() as session:
+                session.query(JobEvent).filter(JobEvent.job_id == job_id).delete()
+                session.query(Application).filter(Application.job_id == job_id).delete()
+                session.query(RawJob).filter(RawJob.canonical_id == job_id).delete()
+                job_obj = session.get(Job, job_id)
+                if job_obj:
+                    session.delete(job_obj)
+            deleted += 1
+            console.print(f"✗ #{job_id} {score:.0%} [{status}] — {title}")
+        except Exception as e:
+            console.print(f"! #{job_id} error: {e}")
+
+    if dry_run:
+        console.print("— preview only, nothing deleted —")
+    else:
+        console.print(f"✓ Deleted {deleted}/{len(job_data)} jobs")
+
+
 # ── cover ─────────────────────────────────────────────────────────────────────
 @app.command()
 def cover(

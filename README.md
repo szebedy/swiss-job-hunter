@@ -305,6 +305,9 @@ sjh enrich --source jobs.ch
 sjh analyze                    # keyword scoring (fast)
 sjh analyze --llm              # LLM scoring (accurate)
 
+# Delete jobs scoring below 30%
+sjh purge --below 30
+
 # View top matches
 sjh top --limit 20
 

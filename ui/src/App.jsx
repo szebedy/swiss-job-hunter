@@ -37,6 +37,8 @@ const EVENT_META = {
 
 const SOURCES = ["jobs.ch","jobscout24.ch","swissdevjobs.ch","jobup.ch","züri.jobs","efinancialcareers.ch","linkedin.com","michael-page.ch"];
 
+const FILTER_STATUSES = ["new","shortlisted","viewed","considering","applied","interviewing","offer","rejected"];
+
 const DIRECTIONS_FALLBACK = ["agent", "perception"];
 
 const APPLY_METHODS = [
@@ -489,7 +491,7 @@ export default function App() {
   const [searchKwInput, setSearchKwInput] = useState("");
   const [searchLoc, setSearchLoc] = useState("Zürich");
   const [searchSrc, setSearchSrc] = useState(SOURCES);
-  const [filterStatus, setFilterStatus] = useState("all");
+  const [filterStatus, setFilterStatus] = useState(FILTER_STATUSES);
   const [filterText, setFilterText] = useState("");
   const [filterMinStars, setFilterMinStars] = useState(0);
   const [filterSource, setFilterSource] = useState("all");
@@ -518,7 +520,7 @@ export default function App() {
 
   const fetchJobs = useCallback(async () => {
     try {
-      const r = await fetch(`${API}/jobs?status=${filterStatus}&q=${encodeURIComponent(filterText)}&direction=${direction}&min_stars=${filterMinStars}&source=${filterSource}`);
+      const r = await fetch(`${API}/jobs?status=all&q=${encodeURIComponent(filterText)}&direction=${direction}&min_stars=${filterMinStars}&source=${filterSource}`);
       if (r.ok) { setJobs(await r.json()); setBackendOk(true); }
     } catch {
       if (backendOk) addLog("✗ Backend offline — run: python server.py");
@@ -739,7 +741,7 @@ export default function App() {
   };
 
   const visible = jobs.filter(j=>
-    (filterStatus==="all"||j.status===filterStatus) &&
+    (filterStatus.length === FILTER_STATUSES.length || filterStatus.includes(j.status)) &&
     (threshold===0 || (j.match_score!=null && j.match_score*100 >= threshold))
   );
 
@@ -1028,12 +1030,18 @@ export default function App() {
                     <span style={{color:"#5e5850"}}>FILTER</span>
                   </div>
                   <div style={{display:"flex",flexWrap:"wrap",gap:3,marginBottom:6}}>
-                    {["all","new","shortlisted","viewed","considering","applied","interviewing","offer","rejected"].map(s=>(
-                      <button key={s} onClick={()=>setFilterStatus(s)} style={{
+                    {["all",...FILTER_STATUSES].map(s=>(
+                      <button key={s} onClick={()=>setFilterStatus(current => {
+                        if (s === "all") return current.length === FILTER_STATUSES.length ? [] : FILTER_STATUSES;
+                        const next = current.includes(s)
+                          ? current.filter(status => status !== s)
+                          : [...current, s];
+                        return next.length === FILTER_STATUSES.length ? FILTER_STATUSES : next;
+                      })} style={{
                         fontSize:8,padding:"2px 7px",borderRadius:3,border:"1px solid",
-                        borderColor:filterStatus===s?(STATUS_META[s]?.color||"#4d7ab5")+"55":"#d4cfc4",
-                        background:filterStatus===s?(STATUS_META[s]?.color||"#4d7ab5")+"12":"transparent",
-                        color:filterStatus===s?(STATUS_META[s]?.color||"#4d7ab5"):"#8a8278",
+                        borderColor:(s === "all" ? filterStatus.length === FILTER_STATUSES.length : filterStatus.includes(s))?(STATUS_META[s]?.color||"#4d7ab5")+"55":"#d4cfc4",
+                        background:(s === "all" ? filterStatus.length === FILTER_STATUSES.length : filterStatus.includes(s))?(STATUS_META[s]?.color||"#4d7ab5")+"12":"transparent",
+                        color:(s === "all" ? filterStatus.length === FILTER_STATUSES.length : filterStatus.includes(s))?(STATUS_META[s]?.color||"#4d7ab5"):"#8a8278",
                         cursor:"pointer",fontFamily:"monospace",letterSpacing:"0.05em",fontWeight:700,
                       }}>{s.toUpperCase()}</button>
                     ))}
